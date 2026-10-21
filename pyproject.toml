@@ -1,0 +1,15 @@
+[project]
+name = "shopstream"
+version = "0.1.0"
+description = "End-to-end Azure + Databricks + Fabric e-commerce data platform on the Olist dataset"
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "BLE", "S110"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

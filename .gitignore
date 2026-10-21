@@ -1,0 +1,28 @@
+# Secrets - never commit
+.env
+*.env
+!.env.example
+kaggle.json
+*.publishsettings
+local.settings.json
+
+# Data - raw CSVs come from Kaggle (CC BY-NC-SA 4.0), not from this repo
+data/raw/*
+!data/raw/.gitkeep
+*.parquet
+*.zip
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Databricks / IDE
+.databricks/
+.vscode/
+.idea/
+.DS_Store
