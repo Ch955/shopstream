@@ -1,6 +1,11 @@
 """Download the Olist dataset from Kaggle into data/raw/ (gitignored).
 
-Needs a Kaggle API token at ~/.kaggle/kaggle.json (Windows: %USERPROFILE%\\.kaggle\\kaggle.json).
+Auth (kaggle>=2.x uses API tokens, not kaggle.json). Pick one:
+  - Browser sign-in:  kaggle auth login
+  - Token file:       save the token string from kaggle.com/settings/api to ~/.kaggle/access_token
+                      (Windows: %USERPROFILE%\\.kaggle\\access_token), no newline
+  - Env var:          KAGGLE_API_TOKEN=<token>
+Fallback: download the zip from the dataset page and extract the 9 CSVs into data/raw/.
 Equivalent CLI:  kaggle datasets download -d olistbr/brazilian-ecommerce -p data/raw --unzip
 """
 from pathlib import Path

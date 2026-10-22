@@ -24,6 +24,13 @@ loaded by a repeatable script. Time: about 60–90 minutes.
 
 ## 3. Get the data (5 min)
 
+Kaggle auth (kaggle 2.x): run `kaggle auth login` (browser sign-in), or save the token string from
+kaggle.com/settings/api to `%USERPROFILE%\.kaggle\access_token`:
+
+```bat
+<nul set /p "=PASTE_YOUR_TOKEN" > "%USERPROFILE%\.kaggle\access_token"
+```
+
 ```bash
 pip install -r requirements-dev.txt
 python scripts/download_olist.py        # or: kaggle datasets download -d olistbr/brazilian-ecommerce -p data/raw --unzip
@@ -40,7 +47,12 @@ The first connection can take ~1 minute while the serverless DB resumes.
 
 Run `sql/source/01_create_schema_and_tables.sql`.
 
-## 5. Load (10–20 min, mostly geolocation's 1M rows)
+No SSMS? Use the portal: database → **Query editor** → SQL authentication (allowlist your IP when prompted).
+Paste the script and **delete the `GO` lines** (the portal editor doesn't support them), then Run.
+The same applies to `02_constraints_and_indexes.sql`. The portal shows one result grid, so run the
+row-count query from `03_validate_load.sql` on its own.
+
+## 5. Load (~2–3 min on a home connection; geolocation's 1M rows dominate)
 
 1. Install **Microsoft ODBC Driver 18 for SQL Server** (Windows installer from Microsoft Learn).
 2. `cp .env.example .env` and fill in server, database, user and password.
