@@ -1,20 +1,11 @@
-/* =====================================================================
-   ShopStream | Day 2 | Ingestion control framework (Azure SQL)
-   04 - schema `etl`: control table, run log, two logging procedures
-
-   How the ADF pipeline uses it (pl_ingest_sql_to_bronze):
-     1. Lookup  etl.ingest_control WHERE is_active = 1      -> list of tables
-     2. ForEach table:
-        a. Lookup new high-water mark = MAX(updated_at) now
-        b. Copy rows WHERE updated_at >  last_watermark
-                       AND updated_at <= new watermark     -> Parquet in Bronze
-        c. success -> etl.usp_ingest_success (advance watermark + log)
-           failure -> etl.usp_ingest_failure (log, watermark NOT moved)
-   Bounding the window with the new watermark means rows that change
-   while the copy runs are picked up next time, never lost.
-   Portal-friendly: no GO separators. Procedures are created through EXEC()
-   because CREATE PROCEDURE must be alone in its batch. Safe to re-run.
-   ===================================================================== */
+-- ShopStream | Day 2 | Ingestion control framework (Azure SQL)
+-- Creates schema etl: control table, run log, two logging procedures.
+-- The ADF pipeline reads etl.ingest_control, copies rows where
+-- last_watermark < updated_at <= MAX(updated_at), then calls
+-- etl.usp_ingest_success (moves watermark + logs) or
+-- etl.usp_ingest_failure (logs only; watermark stays put).
+-- Written for the portal Query editor: no batch separators, procedures
+-- are created through EXEC(). Safe to re-run.
 
 IF SCHEMA_ID(N'etl') IS NULL
     EXEC (N'CREATE SCHEMA etl AUTHORIZATION dbo;');
