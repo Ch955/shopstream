@@ -88,7 +88,7 @@ python scripts/load_olist_to_azuresql.py
 ## Progress
 
 - [x] Day 1 — accounts, repo, Olist loaded into Azure SQL DB
-- [ ] Day 2 — ADLS Gen2 + ADF metadata-driven incremental copy to Bronze
+- [x] Day 2 — ADLS Gen2 + ADF metadata-driven incremental copy to Bronze (full load 1.55M rows; incremental proven: 50 + 10 rows)
 - [ ] Day 3 — order simulator (OLTP changes + event stream)
 - [ ] Bronze → Silver → Gold in Databricks with DQ checks
 - [ ] Fabric Lakehouse shortcut, Eventstream/Eventhouse, Power BI
