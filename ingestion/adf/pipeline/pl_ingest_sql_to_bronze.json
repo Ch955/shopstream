@@ -1,0 +1,326 @@
+{
+    "name": "pl_ingest_sql_to_bronze",
+    "properties": {
+        "description": "Metadata-driven incremental copy: Azure SQL olist.* -> ADLS Gen2 bronze/olist/<table>/load_date=YYYY-MM-DD/*.parquet. Driven by etl.ingest_control; logs to etl.ingest_run_log.",
+        "activities": [
+            {
+                "name": "LKP_ActiveTables",
+                "description": "Read the control table: which tables to load and from which watermark.",
+                "type": "Lookup",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.00:30:00",
+                    "retry": 2,
+                    "retryIntervalInSeconds": 60,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "source": {
+                        "type": "AzureSqlSource",
+                        "sqlReaderQuery": "SELECT schema_name, table_name, watermark_column, CONVERT(varchar(23), last_watermark, 121) AS last_watermark FROM etl.ingest_control WHERE is_active = 1 ORDER BY load_order",
+                        "queryTimeout": "02:00:00",
+                        "partitionOption": "None"
+                    },
+                    "dataset": {
+                        "referenceName": "ds_azuresql_query",
+                        "type": "DatasetReference"
+                    },
+                    "firstRowOnly": false
+                }
+            },
+            {
+                "name": "FE_Tables",
+                "description": "One iteration per active table; up to 4 in parallel.",
+                "type": "ForEach",
+                "dependsOn": [
+                    {
+                        "activity": "LKP_ActiveTables",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "userProperties": [],
+                "typeProperties": {
+                    "items": {
+                        "value": "@activity('LKP_ActiveTables').output.value",
+                        "type": "Expression"
+                    },
+                    "isSequential": false,
+                    "batchCount": 4,
+                    "activities": [
+                        {
+                            "name": "LKP_NewWatermark",
+                            "description": "Freeze the upper bound of this run's window: MAX(watermark) right now.",
+                            "type": "Lookup",
+                            "dependsOn": [],
+                            "policy": {
+                                "timeout": "0.00:30:00",
+                                "retry": 2,
+                                "retryIntervalInSeconds": 60,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "userProperties": [],
+                            "typeProperties": {
+                                "source": {
+                                    "type": "AzureSqlSource",
+                                    "sqlReaderQuery": {
+                                        "value": "@concat('SELECT COALESCE(CONVERT(varchar(23), MAX(', item().watermark_column, '), 121), ''', item().last_watermark, ''') AS new_watermark FROM ', item().schema_name, '.', item().table_name)",
+                                        "type": "Expression"
+                                    },
+                                    "queryTimeout": "02:00:00",
+                                    "partitionOption": "None"
+                                },
+                                "dataset": {
+                                    "referenceName": "ds_azuresql_query",
+                                    "type": "DatasetReference"
+                                },
+                                "firstRowOnly": true
+                            }
+                        },
+                        {
+                            "name": "CP_SqlToBronze",
+                            "description": "Copy only rows changed since the last run (last_watermark < updated_at <= new_watermark) to Parquet.",
+                            "type": "Copy",
+                            "dependsOn": [
+                                {
+                                    "activity": "LKP_NewWatermark",
+                                    "dependencyConditions": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            ],
+                            "policy": {
+                                "timeout": "0.00:30:00",
+                                "retry": 2,
+                                "retryIntervalInSeconds": 60,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "userProperties": [],
+                            "typeProperties": {
+                                "source": {
+                                    "type": "AzureSqlSource",
+                                    "sqlReaderQuery": {
+                                        "value": "@concat('SELECT *, ''', pipeline().RunId, ''' AS _pipeline_run_id, SYSUTCDATETIME() AS _ingested_at FROM ', item().schema_name, '.', item().table_name, ' WHERE ', item().watermark_column, ' > ''', item().last_watermark, ''' AND ', item().watermark_column, ' <= ''', activity('LKP_NewWatermark').output.firstRow.new_watermark, '''')",
+                                        "type": "Expression"
+                                    },
+                                    "queryTimeout": "02:00:00",
+                                    "partitionOption": "None"
+                                },
+                                "sink": {
+                                    "type": "ParquetSink",
+                                    "storeSettings": {
+                                        "type": "AzureBlobFSWriteSettings"
+                                    },
+                                    "formatSettings": {
+                                        "type": "ParquetWriteSettings"
+                                    }
+                                },
+                                "enableStaging": false
+                            },
+                            "inputs": [
+                                {
+                                    "referenceName": "ds_azuresql_query",
+                                    "type": "DatasetReference"
+                                }
+                            ],
+                            "outputs": [
+                                {
+                                    "referenceName": "ds_adls_parquet",
+                                    "type": "DatasetReference",
+                                    "parameters": {
+                                        "container": "bronze",
+                                        "folderPath": {
+                                            "value": "@concat('olist/', item().table_name, '/load_date=', formatDateTime(pipeline().TriggerTime, 'yyyy-MM-dd'))",
+                                            "type": "Expression"
+                                        },
+                                        "fileName": {
+                                            "value": "@concat(item().table_name, '_', pipeline().RunId, '.parquet')",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "name": "SP_IngestSuccess",
+                            "description": "Advance the watermark and log the run, in one transaction.",
+                            "type": "SqlServerStoredProcedure",
+                            "dependsOn": [
+                                {
+                                    "activity": "CP_SqlToBronze",
+                                    "dependencyConditions": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            ],
+                            "policy": {
+                                "timeout": "0.00:10:00",
+                                "retry": 2,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "userProperties": [],
+                            "linkedServiceName": {
+                                "referenceName": "ls_azuresql_shopstream",
+                                "type": "LinkedServiceReference"
+                            },
+                            "typeProperties": {
+                                "storedProcedureName": "[etl].[usp_ingest_success]",
+                                "storedProcedureParameters": {
+                                    "schema_name": {
+                                        "value": {
+                                            "value": "@item().schema_name",
+                                            "type": "Expression"
+                                        },
+                                        "type": "String"
+                                    },
+                                    "table_name": {
+                                        "value": {
+                                            "value": "@item().table_name",
+                                            "type": "Expression"
+                                        },
+                                        "type": "String"
+                                    },
+                                    "old_watermark": {
+                                        "value": {
+                                            "value": "@item().last_watermark",
+                                            "type": "Expression"
+                                        },
+                                        "type": "String"
+                                    },
+                                    "new_watermark": {
+                                        "value": {
+                                            "value": "@activity('LKP_NewWatermark').output.firstRow.new_watermark",
+                                            "type": "Expression"
+                                        },
+                                        "type": "String"
+                                    },
+                                    "rows_copied": {
+                                        "value": {
+                                            "value": "@activity('CP_SqlToBronze').output.rowsCopied",
+                                            "type": "Expression"
+                                        },
+                                        "type": "Int64"
+                                    },
+                                    "bronze_path": {
+                                        "value": {
+                                            "value": "@concat('bronze/', 'olist/', item().table_name, '/load_date=', formatDateTime(pipeline().TriggerTime, 'yyyy-MM-dd'), '/', item().table_name, '_', pipeline().RunId, '.parquet')",
+                                            "type": "Expression"
+                                        },
+                                        "type": "String"
+                                    },
+                                    "pipeline_run_id": {
+                                        "value": {
+                                            "value": "@pipeline().RunId",
+                                            "type": "Expression"
+                                        },
+                                        "type": "String"
+                                    }
+                                }
+                            }
+                        },
+                        {
+                            "name": "SP_IngestFailure",
+                            "description": "Log the failure; the watermark stays where it was so the next run retries the same window.",
+                            "type": "SqlServerStoredProcedure",
+                            "dependsOn": [
+                                {
+                                    "activity": "CP_SqlToBronze",
+                                    "dependencyConditions": [
+                                        "Failed"
+                                    ]
+                                }
+                            ],
+                            "policy": {
+                                "timeout": "0.00:10:00",
+                                "retry": 2,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "userProperties": [],
+                            "linkedServiceName": {
+                                "referenceName": "ls_azuresql_shopstream",
+                                "type": "LinkedServiceReference"
+                            },
+                            "typeProperties": {
+                                "storedProcedureName": "[etl].[usp_ingest_failure]",
+                                "storedProcedureParameters": {
+                                    "schema_name": {
+                                        "value": {
+                                            "value": "@item().schema_name",
+                                            "type": "Expression"
+                                        },
+                                        "type": "String"
+                                    },
+                                    "table_name": {
+                                        "value": {
+                                            "value": "@item().table_name",
+                                            "type": "Expression"
+                                        },
+                                        "type": "String"
+                                    },
+                                    "old_watermark": {
+                                        "value": {
+                                            "value": "@item().last_watermark",
+                                            "type": "Expression"
+                                        },
+                                        "type": "String"
+                                    },
+                                    "pipeline_run_id": {
+                                        "value": {
+                                            "value": "@pipeline().RunId",
+                                            "type": "Expression"
+                                        },
+                                        "type": "String"
+                                    },
+                                    "error_message": {
+                                        "value": {
+                                            "value": "@activity('CP_SqlToBronze').error.message",
+                                            "type": "Expression"
+                                        },
+                                        "type": "String"
+                                    }
+                                }
+                            }
+                        },
+                        {
+                            "name": "FAIL_Table",
+                            "description": "Re-raise so the pipeline run shows Failed instead of a silently handled error.",
+                            "type": "Fail",
+                            "dependsOn": [
+                                {
+                                    "activity": "SP_IngestFailure",
+                                    "dependencyConditions": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            ],
+                            "userProperties": [],
+                            "typeProperties": {
+                                "message": {
+                                    "value": "@concat('Ingestion failed for ', item().schema_name, '.', item().table_name, ': ', activity('CP_SqlToBronze').error.message)",
+                                    "type": "Expression"
+                                },
+                                "errorCode": "INGEST_COPY_FAILED"
+                            }
+                        }
+                    ]
+                }
+            }
+        ],
+        "annotations": [
+            "shopstream",
+            "day2"
+        ],
+        "folder": {
+            "name": "ingestion"
+        }
+    }
+}

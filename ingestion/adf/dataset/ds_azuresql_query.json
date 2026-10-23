@@ -1,0 +1,15 @@
+{
+    "name": "ds_azuresql_query",
+    "properties": {
+        "description": "Generic Azure SQL dataset; activities pass their own query.",
+        "linkedServiceName": {
+            "referenceName": "ls_azuresql_shopstream",
+            "type": "LinkedServiceReference"
+        },
+        "annotations": [],
+        "type": "AzureSqlTable",
+        "schema": [],
+        "typeProperties": {}
+    },
+    "type": "Microsoft.DataFactory/factories/datasets"
+}
