@@ -1,0 +1,14 @@
+{
+	"name": "ls_azuresql_shopstream",
+	"properties": {
+		"annotations": [],
+		"type": "AzureSqlDatabase",
+		"typeProperties": {
+			"server": "sql-shopstream-cr.database.windows.net",
+			"database": "sqldb-shopstream-oltp",
+			"encrypt": "mandatory",
+			"trustServerCertificate": false,
+			"authenticationType": "SystemAssignedManagedIdentity"
+		}
+	}
+}
